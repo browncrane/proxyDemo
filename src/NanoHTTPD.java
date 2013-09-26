@@ -1,6 +1,5 @@
 
 import java.io.*;
-import java.nio.charset.Charset;
 import java.util.*;
 import java.net.*;
 
@@ -44,14 +43,14 @@ import java.net.*;
  */
 public class NanoHTTPD
 {
-	// ==================================================
+    private final ServerSocket serverSocket;
+    // ==================================================
 	// API parts
 	// ==================================================
 
 	/**
 	 * Override this to customize the server.<p>
 	 *
-	 * (By default, this delegates to serveFile() and allows directory listing.)
 	 *
 	 * @parm uri	Percent-decoded URI without parameters, for example "/index.cgi"
 	 * @parm method	"GET", "POST" etc.
@@ -77,10 +76,10 @@ public class NanoHTTPD
 								parms.getProperty( value ) + "'" );
 		}
 
-        return serveWeb(uri, header, true);
+        return serveWeb(uri);
 	}
 
-	/**
+    /**
 	 * HTTP response.
 	 * Return one of these from serve().
 	 */
@@ -177,8 +176,7 @@ public class NanoHTTPD
 	{
 		myTcpPort = port;
 		runThread = true;
-		final ServerSocket ss = new ServerSocket( myTcpPort );
-		//ss.setSoTimeout(1000);
+        serverSocket = new ServerSocket( myTcpPort );
 		Thread t = new Thread( new Runnable()
 			{
 				public void run()
@@ -186,7 +184,7 @@ public class NanoHTTPD
 					try
 					{
 						while( runThread )
-							new HTTPSession( ss.accept());
+							new HTTPSession( serverSocket.accept());
 					}
 					catch ( IOException ioe )
 					{}
@@ -197,8 +195,9 @@ public class NanoHTTPD
 	}
 
 	private boolean runThread;
-	public void stop() {
+	public void stop() throws IOException {
 		this.runThread = false;
+        serverSocket.close();
 	}
 	
 	/**
@@ -348,7 +347,7 @@ public class NanoHTTPD
 					postLine = postLine.trim();
 					decodeParms( postLine, parms );
 				}
-                Response r = serveWeb(uri, header, true);
+                Response r = serveWeb(uri);
 
 
 				if ( r == null )
@@ -517,8 +516,6 @@ public class NanoHTTPD
 			else
 			{
 				newUri += URLEncoder.encode( tok );
-				// For Java 1.4 you'll want to use this instead:
-				// try { newUri += URLEncoder.encode( tok, "UTF-8" ); } catch ( UnsupportedEncodingException uee )
 			}
 		}
 		return newUri;
@@ -527,10 +524,9 @@ public class NanoHTTPD
 	private int myTcpPort;
 	File myFileDir;
 
-    public Response serveWeb( String uri, Properties header,
-                               boolean allowDirectoryListing ) throws IOException {
-        URL obj = new URL(uri);
-        HttpURLConnection urlConnection = (HttpURLConnection) obj.openConnection();
+    public Response serveWeb(String uri) throws IOException {
+        URL url = new URL(uri);
+        HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
         urlConnection.setRequestMethod("GET");
         String status = urlConnection.getResponseMessage();
         InputStream inputStream = urlConnection.getInputStream();
@@ -539,197 +535,7 @@ public class NanoHTTPD
         return new Response(status, mimeType,inputStream);
     }
 
-	// ==================================================
-	// File server code
-	// ==================================================
-
-	/**
-	 * Serves file from homeDir and its' subdirectories (only).
-	 * Uses only URI, ignores all headers and HTTP parameters.
-	 */
-	public Response serveFile( String uri, Properties header, File homeDir,
-							   boolean allowDirectoryListing )
-	{
-		// Make sure we won't die of an exception later
-		if ( !homeDir.isDirectory())
-			return new Response( HTTP_INTERNALERROR, MIME_PLAINTEXT,
-								 "INTERNAL ERRROR: serveFile(): given homeDir is not a directory." );
-
-		// Remove URL arguments
-		uri = uri.trim().replace( File.separatorChar, '/' );
-		if ( uri.indexOf( '?' ) >= 0 )
-			uri = uri.substring(0, uri.indexOf( '?' ));
-
-		// Prohibit getting out of current directory
-		if ( uri.startsWith( ".." ) || uri.endsWith( ".." ) || uri.indexOf( "../" ) >= 0 )
-			return new Response( HTTP_FORBIDDEN, MIME_PLAINTEXT,
-								 "FORBIDDEN: Won't serve ../ for security reasons." );
-
-		File f = new File( homeDir, uri );
-		if ( !f.exists())
-			return new Response( HTTP_NOTFOUND, MIME_PLAINTEXT,
-								 "Error 404, file not found." );
-
-		// List the directory, if necessary
-		if ( f.isDirectory())
-		{
-			// Browsers get confused without '/' after the
-			// directory, send a redirect.
-			if ( !uri.endsWith( "/" ))
-			{
-				uri += "/";
-				Response r = new Response( HTTP_REDIRECT, MIME_HTML,
-										   "<html><body>Redirected: <a href=\"" + uri + "\">" +
-										   uri + "</a></body></html>");
-				r.addHeader( "Location", uri );
-				return r;
-			}
-
-			// First try index.html and index.htm
-			if ( new File( f, "index.html" ).exists())
-				f = new File( homeDir, uri + "/index.html" );
-			else if ( new File( f, "index.htm" ).exists())
-				f = new File( homeDir, uri + "/index.htm" );
-
-			// No index file, list the directory
-			else if ( allowDirectoryListing )
-			{
-				Hashtable styles = new Hashtable();
-				Hashtable style;
-				
-				style = new Hashtable();
-				style.put("background", "#181818");
-				style.put("color", "#dddddd");
-				style.put("padding-top", "10px");
-				styles.put(".localhttpd", style);
-
-				style = new Hashtable();
-				style.put("color", "#ff3333");
-				styles.put(".localhttpd a", style);
-
-				style = new Hashtable();
-				style.put("color", "#ff6666");
-				styles.put(".localhttpd a:hover", style);
-
-				style = new Hashtable();
-				style.put("margin", "0px 0px 5px 0px");
-				style.put("padding", "0px");
-				style.put("font-size", "16px");
-				styles.put(".localhttpd h1", style);
-
-				String header_block = "<head><style>";
-				for (Enumeration e = styles.keys(); e.hasMoreElements();) {
-					String key = (String) e.nextElement();
-					Hashtable item = (Hashtable) styles.get(key);
-					header_block += key + "{\n";
-					for (Enumeration e2 = item.keys(); e2.hasMoreElements();) {
-						String skey = (String) e2.nextElement();
-						header_block += skey + ":" + item.get(skey) + ";\n";
-					}
-					header_block += key + "}\n";
-				}
-				header_block += "</style></head>";
-								
-				String[] files = f.list();
-				String msg = "<html>" + header_block + "<body class=\"localhttpd\"><h1>Directory " + uri + "</h1>";
-
-				if ( uri.length() > 1 )
-				{
-					String u = uri.substring( 0, uri.length()-1 );
-					int slash = u.lastIndexOf( '/' );
-					if ( slash >= 0 && slash  < u.length())
-						msg += "<b><a href=\"" + uri.substring(0, slash+1) + "\">..</a></b><br/>";
-				}
-
-				for ( int i=0; i<files.length; ++i )
-				{
-					File curFile = new File( f, files[i] );
-					boolean dir = curFile.isDirectory();
-					if ( dir )
-					{
-						msg += "<b>";
-						files[i] += "/";
-					}
-					
-					// Show file size
-					String extra = "";
-					if ( curFile.isFile())
-					{
-						extra = "target='_blank'";
-					}
-
-					msg += "<a " + extra + " href=\"" + encodeUri( uri + files[i] ) + "\">" +
-						   files[i] + "</a>";
-
-					// Show file size
-					if ( curFile.isFile())
-					{
-						long len = curFile.length();
-						msg += " &nbsp;<font size=2>(";
-						if ( len < 1024 )
-							msg += curFile.length() + " bytes";
-						else if ( len < 1024 * 1024 )
-							msg += curFile.length()/1024 + "." + (curFile.length()%1024/10%100) + " KB";
-						else
-							msg += curFile.length()/(1024*1024) + "." + curFile.length()%(1024*1024)/10%100 + " MB";
-
-						msg += ")</font>";
-					}
-					msg += "<br/>";
-					if ( dir ) msg += "</b>";
-				}
-				return new Response( HTTP_OK, MIME_HTML, msg );
-			}
-			else
-			{
-				return new Response( HTTP_FORBIDDEN, MIME_PLAINTEXT,
-								 "FORBIDDEN: No directory listing." );
-			}
-		}
-
-		try
-		{
-			// Get MIME type from file name extension, if possible
-			String mime = null;
-			int dot = f.getCanonicalPath().lastIndexOf( '.' );
-			if ( dot >= 0 )
-				mime = (String)theMimeTypes.get( f.getCanonicalPath().substring( dot + 1 ).toLowerCase());
-			if ( mime == null )
-				mime = MIME_DEFAULT_BINARY;
-
-			// Support (simple) skipping:
-			long startFrom = 0;
-			String range = header.getProperty( "Range" );
-			if ( range != null )
-			{
-				if ( range.startsWith( "bytes=" ))
-				{
-					range = range.substring( "bytes=".length());
-					int minus = range.indexOf( '-' );
-					if ( minus > 0 )
-						range = range.substring( 0, minus );
-					try	{
-						startFrom = Long.parseLong( range );
-					}
-					catch ( NumberFormatException nfe ) {}
-				}
-			}
-
-			FileInputStream fis = new FileInputStream( f );
-			fis.skip( startFrom );
-			Response r = new Response( HTTP_OK, mime, fis );
-			r.addHeader( "Content-length", "" + (f.length() - startFrom));
-			r.addHeader( "Content-range", "" + startFrom + "-" +
-						(f.length()-1) + "/" + f.length());
-			return r;
-		}
-		catch( IOException ioe )
-		{
-			return new Response( HTTP_FORBIDDEN, MIME_PLAINTEXT, "FORBIDDEN: Reading file failed." );
-		}
-	}
-
-	/**
+    /**
 	 * Hashtable mapping (String)FILENAME_EXTENSION -> (String)MIME_TYPE
 	 */
 	private static Hashtable theMimeTypes = new Hashtable();
