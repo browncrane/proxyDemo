@@ -1,5 +1,4 @@
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
@@ -13,7 +12,7 @@ import java.net.URL;
 import static org.hamcrest.core.Is.is;
 import static org.junit.Assert.assertThat;
 
-public class NanoHTTPDTest {
+public class NanoProxyTest {
 
     private URL url;
     private Proxy proxy;
@@ -26,19 +25,17 @@ public class NanoHTTPDTest {
 
     @Test
     public void testGetMethod() throws Exception {
-        // given
         HttpURLConnection directConnection = (HttpURLConnection) url.openConnection();
         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(directConnection.getInputStream(), "UTF-8"));
         String expected = bufferedReader.readLine().substring(0, 20);
 
-        NanoHTTPD nanoHTTPD = new NanoHTTPD(1024);
+        NanoProxy nanoProxy = new NanoProxy(1024);
         HttpURLConnection proxyConnection = (HttpURLConnection) url.openConnection(proxy);
         BufferedReader in = new BufferedReader(new InputStreamReader(proxyConnection.getInputStream(), "UTF-8"));
         String string = in.readLine().substring(0, 20);
 
-        // then
         assertThat(string, is(expected));
-        nanoHTTPD.stop();
+        nanoProxy.stop();
     }
 
     @Test
@@ -46,42 +43,45 @@ public class NanoHTTPDTest {
         HttpURLConnection directConnection = (HttpURLConnection) url.openConnection();
         String expected = directConnection.getHeaderField("Content-Length");
 
-        NanoHTTPD nanoHTTPD = new NanoHTTPD(1024);
+        NanoProxy nanoProxy = new NanoProxy(1024);
         HttpURLConnection proxyConnection = (HttpURLConnection) url.openConnection(proxy);
         String actual = proxyConnection.getHeaderField("Content-Length");
 
         assertThat(expected, is(actual));
-        nanoHTTPD.stop();
+        nanoProxy.stop();
     }
 
-    @Ignore
     @Test
     public void testPostMethod() throws Exception {
-        //given
         HttpURLConnection directConnection = (HttpURLConnection) url.openConnection();
-
         directConnection.setRequestMethod("POST");
         String urlParameters = "sn=C02G8416DRJM&cn=&locale=&caller=&num=12345";
-
         directConnection.setDoOutput(true);
         DataOutputStream wr = new DataOutputStream(directConnection.getOutputStream());
         wr.writeBytes(urlParameters);
-
         BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(directConnection.getInputStream()));
         String expected = bufferedReader.readLine();
 
-        NanoHTTPD nanoHTTPD = new NanoHTTPD(1024);
+        NanoProxy nanoProxy = new NanoProxy(1024);
         HttpURLConnection proxyConnection = (HttpURLConnection) url.openConnection(proxy);
         proxyConnection.setRequestMethod("POST");
-
         proxyConnection.setDoOutput(true);
         DataOutputStream wrForProxy = new DataOutputStream(proxyConnection.getOutputStream());
         wrForProxy.writeBytes(urlParameters);
         BufferedReader in = new BufferedReader(new InputStreamReader(proxyConnection.getInputStream(), "UTF-8"));
-        String string = in.readLine();
+        String actual = in.readLine();
 
-        //then
-        assertThat(string,is(expected));
-        nanoHTTPD.stop();
+        assertThat(actual,is(expected));
+        nanoProxy.stop();
+    }
+
+    @Test
+    public void test_bad_request() throws Exception {
+        NanoProxy nanoProxy = new NanoProxy(1024);
+        HttpURLConnection missURL = (HttpURLConnection) url.openConnection(proxy);
+        missURL.setRequestMethod("GET");
+        missURL.getInputStream();
+
+        nanoProxy.stop();
     }
 }

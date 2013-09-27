@@ -1,4 +1,4 @@
-import com.github.dreamhead.moco.*;
+import com.github.dreamhead.moco.HttpServer;
 import com.github.dreamhead.moco.Runnable;
 import org.junit.Before;
 import org.junit.Test;
@@ -6,7 +6,10 @@ import org.junit.Test;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.InputStreamReader;
-import java.net.*;
+import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.URL;
 
 import static com.github.dreamhead.moco.Moco.*;
 import static com.github.dreamhead.moco.Runner.running;
@@ -31,7 +34,7 @@ public class NanoUnitTest {
         running(server, new com.github.dreamhead.moco.Runnable() {
             @Override
             public void run() throws Exception {
-                HttpURLConnection urlConnection = (HttpURLConnection) new URL("http://localhost:12306").openConnection();
+                HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
                 int responseCode = urlConnection.getResponseCode();
                 assertThat(responseCode, is(200));
             }
@@ -50,12 +53,12 @@ public class NanoUnitTest {
                 directConnection.setRequestMethod("GET");
                 String responseForDirectConnection = new BufferedReader(new InputStreamReader(directConnection.getInputStream())).readLine();
 
-                NanoHTTPD nanoHTTPD = new NanoHTTPD(1024);
+                NanoProxy nanoProxy = new NanoProxy(1024);
                 HttpURLConnection proxyConnection = (HttpURLConnection) url.openConnection(proxy);
                 proxyConnection.setRequestMethod("GET");
                 String expected = new BufferedReader(new InputStreamReader(proxyConnection.getInputStream(), "UTF-8")).readLine();
                 assertThat(responseForDirectConnection,is(expected));
-                nanoHTTPD.stop();
+                nanoProxy.stop();
             }
         });
     }
@@ -76,7 +79,7 @@ public class NanoUnitTest {
                 wr.writeBytes(urlParameters);
                 String expected = new BufferedReader(new InputStreamReader(directConnection.getInputStream())).readLine();
 
-                NanoHTTPD nanoHTTPD = new NanoHTTPD(1024);
+                NanoProxy nanoProxy = new NanoProxy(1024);
                 HttpURLConnection proxyConnection = (HttpURLConnection) url.openConnection(proxy);
                 proxyConnection.setRequestMethod("POST");
                 proxyConnection.setDoOutput(true);
@@ -85,7 +88,7 @@ public class NanoUnitTest {
                 String actual = new BufferedReader(new InputStreamReader(proxyConnection.getInputStream())).readLine();
 
                 assertThat(expected,is(actual));
-                nanoHTTPD.stop();
+                nanoProxy.stop();
             }
         });
     }

@@ -6,13 +6,10 @@ import java.net.*;
 /**
  * A simple, tiny, nicely embeddable HTTP 1.0 server in Java
  * <p/>
- * <p> NanoHTTPD version 1.11,
- * Copyright &copy; 2001,2005-2008 Jarno Elonen (elonen@iki.fi, http://iki.fi/elonen/)
  * <p/>
  * <p><b>Features + limitations: </b><ul>
  * <p/>
  * <li> Only one Java file </li>
- * <li> Java 1.1 compatible </li>
  * <li> Released as open source, Modified BSD licence </li>
  * <li> No fixed config files, logging, authorization etc. (Implement yourself if you need them.) </li>
  * <li> Supports parameter parsing of GET and POST methods </li>
@@ -20,11 +17,6 @@ import java.net.*;
  * <li> Never caches anything </li>
  * <li> Doesn't limit bandwidth, request time or simultaneous connections </li>
  * <li> Default code serves files and shows all HTTP parameters and headers</li>
- * <li> File server supports directory listing, index.html and index.htm </li>
- * <li> File server does the 301 redirection trick for directories without '/'</li>
- * <li> File server supports simple skipping for files (continue download) </li>
- * <li> File server uses current directory as a web root </li>
- * <li> File server serves also very long files without memory overhead </li>
  * <li> Contains a built-in list of most common mime types </li>
  * <li> All header names are converted lowercase so they don't vary between browsers/clients </li>
  * <p/>
@@ -33,83 +25,42 @@ import java.net.*;
  * <p><b>Ways to use: </b><ul>
  * <p/>
  * <li> Run as a standalone app, serves files from current directory and shows requests</li>
- * <li> Subclass serve() and embed to your own program </li>
- * <li> Call serveFile() from serve() with your own base directory </li>
  * <p/>
  * </ul>
  * <p/>
  * See the end of the source file for distribution license
  * (Modified BSD licence)
  */
-public class NanoHTTPD {
+public class NanoProxy {
     private final ServerSocket serverSocket;
+    private boolean runThread;
 
-    // ==================================================
-    // API parts
-    // ==================================================
-
-    /**
-     * HTTP response.
-     * Return one of these from serve().
-     */
     public class Response {
 
-        /**
-         * Basic constructor.
-         */
         public Response(String status, String mimeType, InputStream data) {
             this.status = status;
             this.mimeType = mimeType;
             this.data = data;
         }
 
-        /**
-         * HTTP status code after processing, e.g. "200 OK", HTTP_OK
-         */
         public String status;
-
-        /**
-         * MIME type of content, e.g. "text/html"
-         */
         public String mimeType;
-
-        /**
-         * Data of the response, may be null.
-         */
         public InputStream data;
-
-        /**
-         * Headers for the HTTP response. Use addHeader()
-         * to add lines.
-         */
         public Properties header = new Properties();
 
         public Response() {
-
         }
     }
 
     public static final String HTTP_BADREQUEST = "400 Bad Request";
     public static final String HTTP_INTERNALERROR = "500 Internal Server Error";
 
-    /**
-     * Common mime types for dynamic content
-     */
     public static final String MIME_PLAINTEXT = "text/plain";
     public static final String MIME_HTML = "text/html";
 
-    // ==================================================
-    // Socket & server code
-    // ==================================================
-
-    /**
-     * Starts a HTTP server to given port.<p>
-     * Throws an IOException if the socket is already in use
-     */
-    public NanoHTTPD(int port) throws IOException {
-        myTcpPort = port;
+    public NanoProxy(int port) throws IOException {
         runThread = true;
-        serverSocket = new ServerSocket(myTcpPort);
+        serverSocket = new ServerSocket(port);
 
         Thread t = new Thread(new Runnable() {
             public void run() {
@@ -125,18 +76,13 @@ public class NanoHTTPD {
         t.start();
     }
 
-    private boolean runThread;
-
     public void stop() throws IOException {
         this.runThread = false;
         serverSocket.close();
     }
 
-    /**
-     * Starts as a standalone file server and waits for Enter.
-     */
     public static void main(String[] args) {
-        System.out.println("NanoHTTPD 1.11 (C) 2001,2005-2008 Jarno Elonen\n" +
+        System.out.println("NanoProxy 0.11 (C) 2013, Crane Zhang\n" +
                 "(Command line options: [port] [--licence])\n");
 
         // Show licence if requested
@@ -156,24 +102,20 @@ public class NanoHTTPD {
                 args[1].toLowerCase().endsWith("licence"))
             System.out.println(LICENCE + "\n");
 
-        NanoHTTPD nh = null;
+        NanoProxy nh = null;
         try {
-            nh = new NanoHTTPD(port);
+            nh = new NanoProxy(port);
         } catch (IOException ioe) {
             System.err.println("Couldn't start server:\n" + ioe);
             System.exit(-1);
         }
-        nh.myFileDir = new File("");
 
-        System.out.println("Now serving files in port " + port + " from \"" +
-                new File("").getAbsolutePath() + "\"");
         System.out.println("Hit Enter to stop.\n");
 
         try {
             System.in.read();
         } catch (Throwable t) {
-        }
-        ;
+        };
     }
 
     /**
@@ -181,32 +123,20 @@ public class NanoHTTPD {
      * and returns the response.
      */
     private class HTTPSession implements Runnable {
+        private Socket mySocket;
 
         public HTTPSession(Socket s) {
             mySocket = s;
-
-            InetAddress localhost;
-            try {
-                localhost = InetAddress.getByName("127.0.0.1");
-            } catch (Exception e) {
-                localhost = null;
-            }
-            if (s.getInetAddress().equals(localhost)) {
-                Thread t = new Thread(this);
-                t.setDaemon(true);
-                t.start();
-            } else {
-                try {
-                    sendError(HTTP_INTERNALERROR, "SERVER INTERNAL ERROR: Invalid ip.");
-                } catch (Throwable t) {
-                }
-            }
+            Thread t = new Thread(this);
+            t.setDaemon(true);
+            t.start();
         }
 
         public void run() {
             try {
                 InputStream is = mySocket.getInputStream();
                 if (is == null) return;
+
                 BufferedReader in = new BufferedReader(new InputStreamReader(is));
 
                 // Read the request line
@@ -274,7 +204,7 @@ public class NanoHTTPD {
                 }
 
                 if (r == null)
-                    sendError(HTTP_INTERNALERROR, "SERVER INTERNAL ERROR: Serve() returned a null response.");
+                    sendError(HTTP_INTERNALERROR, "SERVER INTERNAL ERROR: Server returned a null response.");
                 else
                     sendResponse(r.status, r.mimeType, r.header, r.data);
 
@@ -398,8 +328,6 @@ public class NanoHTTPD {
                 }
             }
         }
-
-        private Socket mySocket;
     }
 
     private Response serveWeb(String uri, String method, String postLine) throws IOException {
@@ -416,10 +344,6 @@ public class NanoHTTPD {
         return new Response(status, mimeType, inputStream);
     }
 
-
-    private int myTcpPort;
-    File myFileDir;
-
     public Response serveWeb(String uri, String method) throws IOException {
         URL url = new URL(uri);
         HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
@@ -431,9 +355,6 @@ public class NanoHTTPD {
         return new Response(status, mimeType, inputStream);
     }
 
-    /**
-     * Hashtable mapping (String)FILENAME_EXTENSION -> (String)MIME_TYPE
-     */
     private static Hashtable theMimeTypes = new Hashtable();
 
     static {
